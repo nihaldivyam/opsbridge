@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"net/http"
 
 	"github.com/nihaldivyam/opsbridge/internal/config"
 	"github.com/nihaldivyam/opsbridge/internal/gitea"
@@ -10,13 +9,11 @@ import (
 )
 
 func main() {
-	cfg := config.LoadConfig()
+	cfg := config.LoadConfig() // Ensure your config struct now has MattermostURL and MattermostBotToken
 	giteaClient := gitea.NewClient(cfg)
 
-	http.HandleFunc("/webhook", mattermost.HandleWebhook(cfg, giteaClient))
+	log.Println("Starting opsbridge bot via Mattermost WebSocket...")
 
-	log.Printf("Starting opsbridge bot on port %s...", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, nil); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
-	}
+	// Start listening to Mattermost. This will block and run continuously.
+	mattermost.StartWebSocketListener(cfg, giteaClient)
 }

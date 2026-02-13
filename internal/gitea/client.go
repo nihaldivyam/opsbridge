@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/nihaldivyam/opsbridge/internal/config"
@@ -35,12 +36,32 @@ func NewClient(cfg *config.Config) *Client {
 	}
 }
 
-func (c *Client) FindIssueByHash(hash string) (int, error) {
+// --- NEW HELPER FUNCTION ---
+// setAuth handles dual-layer authentication if the proxy requires Basic Auth
+func (c *Client) setAuth(req *http.Request) {
+	if c.config.GiteaBasicUser != "" && c.config.GiteaBasicPass != "" {
+		// 1. Satisfy the reverse proxy with the Basic Auth header
+		req.SetBasicAuth(c.config.GiteaBasicUser, c.config.GiteaBasicPass)
+
+		// 2. Satisfy Gitea by passing the API token in the URL query string
+		q := req.URL.Query()
+		q.Add("token", c.config.GiteaToken)
+		req.URL.RawQuery = q.Encode()
+	} else {
+		// Standard authentication without a Basic Auth proxy
+		req.Header.Add("Authorization", "token "+c.config.GiteaToken)
+	}
+}
+
+func (c *Client) FindIssueByLabels(alertname, certname string) (int, error) {
+	searchStr := fmt.Sprintf("%s %s", alertname, certname)
+	query := url.QueryEscape(searchStr)
+
 	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues?state=open&q=%s",
-		c.config.GiteaURL, c.config.GiteaOwner, c.config.GiteaRepo, hash)
+		c.config.GiteaURL, c.config.GiteaOwner, c.config.GiteaRepo, query)
 
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Add("Authorization", "token "+c.config.GiteaToken)
+	c.setAuth(req) // Apply auth here
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -58,7 +79,7 @@ func (c *Client) FindIssueByHash(hash string) (int, error) {
 	}
 
 	if len(issues) == 0 {
-		return 0, fmt.Errorf("no issue found for hash: %s", hash)
+		return 0, fmt.Errorf("no open issue found matching labels: %s", searchStr)
 	}
 
 	return issues[0].Number, nil
@@ -70,7 +91,8 @@ func (c *Client) AddComment(issueNumber int, text string) error {
 
 	body, _ := json.Marshal(CommentPayload{Body: text})
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
-	req.Header.Add("Authorization", "token "+c.config.GiteaToken)
+
+	c.setAuth(req) // Apply auth here
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
@@ -96,7 +118,8 @@ func (c *Client) AddTimeReg(issueNumber int, durationStr string) error {
 
 	body, _ := json.Marshal(AddTimePayload{Time: int64(duration.Seconds())})
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
-	req.Header.Add("Authorization", "token "+c.config.GiteaToken)
+
+	c.setAuth(req) // Apply auth here
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
