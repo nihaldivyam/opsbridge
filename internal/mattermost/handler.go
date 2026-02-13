@@ -98,7 +98,7 @@ func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 func processAction(gc *gitea.Client, issueNumber int, text string) {
 	replyText := strings.TrimSpace(text)
 
-	if strings.HasPrefix(replyText, "/spend") {
+	if strings.HasPrefix(replyText, "/ticket") {
 		parts := strings.SplitN(replyText, " ", 3)
 		if len(parts) >= 2 {
 			if err := gc.AddTimeReg(issueNumber, parts[1]); err != nil {

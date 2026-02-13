@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
+	"strings"
 	"time"
 
 	"github.com/nihaldivyam/opsbridge/internal/config"
@@ -19,6 +19,7 @@ type Client struct {
 type Issue struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
+	Body   string `json:"body"` // NEW: We need the body to check for the alertname
 }
 
 type CommentPayload struct {
@@ -36,32 +37,25 @@ func NewClient(cfg *config.Config) *Client {
 	}
 }
 
-// --- NEW HELPER FUNCTION ---
-// setAuth handles dual-layer authentication if the proxy requires Basic Auth
 func (c *Client) setAuth(req *http.Request) {
 	if c.config.GiteaBasicUser != "" && c.config.GiteaBasicPass != "" {
-		// 1. Satisfy the reverse proxy with the Basic Auth header
 		req.SetBasicAuth(c.config.GiteaBasicUser, c.config.GiteaBasicPass)
-
-		// 2. Satisfy Gitea by passing the API token in the URL query string
 		q := req.URL.Query()
 		q.Add("token", c.config.GiteaToken)
 		req.URL.RawQuery = q.Encode()
 	} else {
-		// Standard authentication without a Basic Auth proxy
 		req.Header.Add("Authorization", "token "+c.config.GiteaToken)
 	}
 }
 
+// FindIssueByLabels fetches open issues and uses Go to perfectly match the strings, bypassing Gitea's search indexer.
 func (c *Client) FindIssueByLabels(alertname, certname string) (int, error) {
-	searchStr := fmt.Sprintf("%s %s", alertname, certname)
-	query := url.QueryEscape(searchStr)
-
-	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues?state=open&q=%s",
-		c.config.GiteaURL, c.config.GiteaOwner, c.config.GiteaRepo, query)
+	// 1. Fetch up to 100 open issues directly, ignoring the 'q' search parameter
+	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues?state=open&limit=100",
+		c.config.GiteaURL, c.config.GiteaOwner, c.config.GiteaRepo)
 
 	req, _ := http.NewRequest("GET", url, nil)
-	c.setAuth(req) // Apply auth here
+	c.setAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -70,7 +64,7 @@ func (c *Client) FindIssueByLabels(alertname, certname string) (int, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("failed to search issues, status: %d", resp.StatusCode)
+		return 0, fmt.Errorf("failed to fetch issues, status: %d", resp.StatusCode)
 	}
 
 	var issues []Issue
@@ -78,11 +72,15 @@ func (c *Client) FindIssueByLabels(alertname, certname string) (int, error) {
 		return 0, err
 	}
 
-	if len(issues) == 0 {
-		return 0, fmt.Errorf("no open issue found matching labels: %s", searchStr)
+	// 2. Locally scan the exact strings
+	for _, issue := range issues {
+		// We know the certname is in the Title, and the alertname is in the Body
+		if strings.Contains(issue.Title, certname) && strings.Contains(issue.Body, alertname) {
+			return issue.Number, nil
+		}
 	}
 
-	return issues[0].Number, nil
+	return 0, fmt.Errorf("no open issue found matching alertname: %s on certname: %s", alertname, certname)
 }
 
 func (c *Client) AddComment(issueNumber int, text string) error {
@@ -92,7 +90,7 @@ func (c *Client) AddComment(issueNumber int, text string) error {
 	body, _ := json.Marshal(CommentPayload{Body: text})
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
 
-	c.setAuth(req) // Apply auth here
+	c.setAuth(req)
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
@@ -119,7 +117,7 @@ func (c *Client) AddTimeReg(issueNumber int, durationStr string) error {
 	body, _ := json.Marshal(AddTimePayload{Time: int64(duration.Seconds())})
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
 
-	c.setAuth(req) // Apply auth here
+	c.setAuth(req)
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
