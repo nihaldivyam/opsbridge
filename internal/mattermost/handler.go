@@ -2,6 +2,7 @@ package mattermost
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
@@ -11,10 +12,7 @@ import (
 	"github.com/nihaldivyam/opsbridge/internal/gitea"
 )
 
-// extractLabel dynamically finds a label key and returns its value, ignoring markdown.
-// It handles formats like: "- **alertname:** `ArgoCdAppOutOfSync`" or "certname: qa-az1..."
 func extractLabel(text, labelKey string) string {
-	// Regex looks for the label, optional colons/asterisks/spaces, and captures the value without backticks
 	re := regexp.MustCompile(`(?i)` + labelKey + `:\**\s*\x60?([a-zA-Z0-9_.-]+)\x60?`)
 	matches := re.FindStringSubmatch(text)
 	if len(matches) > 1 {
@@ -73,12 +71,10 @@ func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 			continue
 		}
 
-		// --- NEW FUZZY MATCHING LOGIC ---
 		alertname := extractLabel(parentPost.Message, "alertname")
 		certname := extractLabel(parentPost.Message, "certname")
 
 		if alertname == "" || certname == "" {
-			// This thread doesn't look like a standard alert, ignore it
 			continue
 		}
 
@@ -90,34 +86,40 @@ func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 			continue
 		}
 
-		log.Printf("Found match! Processing action on Gitea issue #%d", issueNumber)
+		issueURL := fmt.Sprintf("%s/%s/%s/issues/%d", cfg.GiteaURL, cfg.GiteaOwner, cfg.GiteaRepo, issueNumber)
+		log.Printf("Found match! Processing action on Gitea issue: %s", issueURL)
+
 		processAction(gc, issueNumber, post.Message)
 	}
 }
 
 func processAction(gc *gitea.Client, issueNumber int, text string) {
+	// Trim spaces from the raw message
 	replyText := strings.TrimSpace(text)
 
-	if strings.HasPrefix(replyText, "/ticket") {
-		parts := strings.SplitN(replyText, " ", 3)
-		if len(parts) >= 2 {
-			if err := gc.AddTimeReg(issueNumber, parts[1]); err != nil {
-				log.Printf("Failed to register time: %v", err)
-			} else {
-				log.Printf("Successfully added time %s to issue #%d", parts[1], issueNumber)
-			}
+	// Convert to lowercase just for the prefix check
+	lowerText := strings.ToLower(replyText)
 
-			if len(parts) == 3 {
-				if err := gc.AddComment(issueNumber, parts[2]); err != nil {
-					log.Printf("Failed to add time comment: %v", err)
-				}
-			}
-		}
+	// If the user typed exactly "/ticket" (or with trailing spaces)
+	if lowerText == "/ticket" {
+		log.Printf("Utility command detected: Ticket link displayed above. No comment added to Gitea.")
+		return // Exit early without calling gc.AddComment
+	}
+
+	// If they typed "/ticket something..." we treat "something..." as the comment
+	if strings.HasPrefix(lowerText, "/ticket ") {
+		replyText = strings.TrimSpace(replyText[7:]) // Strip "/ticket " from the start
+	}
+
+	// If the resulting text is empty after stripping /ticket, do nothing
+	if replyText == "" {
+		return
+	}
+
+	// Post the remaining text as a comment
+	if err := gc.AddComment(issueNumber, replyText); err != nil {
+		log.Printf("Failed to add comment: %v", err)
 	} else {
-		if err := gc.AddComment(issueNumber, replyText); err != nil {
-			log.Printf("Failed to add comment: %v", err)
-		} else {
-			log.Printf("Successfully added comment to issue #%d", issueNumber)
-		}
+		log.Printf("Successfully added comment to issue #%d", issueNumber)
 	}
 }

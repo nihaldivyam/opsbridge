@@ -19,15 +19,11 @@ type Client struct {
 type Issue struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
-	Body   string `json:"body"` // NEW: We need the body to check for the alertname
+	Body   string `json:"body"`
 }
 
 type CommentPayload struct {
 	Body string `json:"body"`
-}
-
-type AddTimePayload struct {
-	Time int64 `json:"time"`
 }
 
 func NewClient(cfg *config.Config) *Client {
@@ -48,9 +44,9 @@ func (c *Client) setAuth(req *http.Request) {
 	}
 }
 
-// FindIssueByLabels fetches open issues and uses Go to perfectly match the strings, bypassing Gitea's search indexer.
+// FindIssueByLabels fetches open issues and uses case-insensitive matching to find the ticket.
 func (c *Client) FindIssueByLabels(alertname, certname string) (int, error) {
-	// 1. Fetch up to 100 open issues directly, ignoring the 'q' search parameter
+	// 1. Fetch the latest open issues
 	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues?state=open&limit=100",
 		c.config.GiteaURL, c.config.GiteaOwner, c.config.GiteaRepo)
 
@@ -72,10 +68,18 @@ func (c *Client) FindIssueByLabels(alertname, certname string) (int, error) {
 		return 0, err
 	}
 
-	// 2. Locally scan the exact strings
+	// 2. Prepare our search terms (lowercase for case-insensitive matching)
+	searchAlert := strings.ToLower(strings.TrimSpace(alertname))
+	searchCert := strings.ToLower(strings.TrimSpace(certname))
+
+	// 3. Scan the issues
 	for _, issue := range issues {
-		// We know the certname is in the Title, and the alertname is in the Body
-		if strings.Contains(issue.Title, certname) && strings.Contains(issue.Body, alertname) {
+		issueTitle := strings.ToLower(issue.Title)
+		issueBody := strings.ToLower(issue.Body)
+
+		// Check if BOTH the certname and alertname exist anywhere in the issue
+		if (strings.Contains(issueTitle, searchCert) || strings.Contains(issueBody, searchCert)) &&
+			(strings.Contains(issueTitle, searchAlert) || strings.Contains(issueBody, searchAlert)) {
 			return issue.Number, nil
 		}
 	}
@@ -101,33 +105,6 @@ func (c *Client) AddComment(issueNumber int, text string) error {
 
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("failed to add comment, status: %d", resp.StatusCode)
-	}
-	return nil
-}
-
-func (c *Client) AddTimeReg(issueNumber int, durationStr string) error {
-	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/times",
-		c.config.GiteaURL, c.config.GiteaOwner, c.config.GiteaRepo, issueNumber)
-
-	duration, err := time.ParseDuration(durationStr)
-	if err != nil {
-		return fmt.Errorf("invalid time format: %v", err)
-	}
-
-	body, _ := json.Marshal(AddTimePayload{Time: int64(duration.Seconds())})
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
-
-	c.setAuth(req)
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to add time, status: %d", resp.StatusCode)
 	}
 	return nil
 }
