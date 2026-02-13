@@ -60,18 +60,40 @@ func buildStatusMessage(cfg *config.Config, issue gitea.Issue) string {
 func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 	mmClient := model.NewAPIv4Client(cfg.MattermostURL)
 	mmClient.SetToken(cfg.MattermostBotToken)
-	bot, _, _ := mmClient.GetMe("")
+
+	// NEW: Actually check if the REST API connection succeeds
+	bot, _, err := mmClient.GetMe("")
+	if err != nil {
+		log.Fatalf("❌ Failed to authenticate with Mattermost REST API: %v", err)
+	}
 
 	wsURL := strings.Replace(cfg.MattermostURL, "http", "ws", 1)
-	wsClient, _ := model.NewWebSocketClient4(wsURL, cfg.MattermostBotToken)
-	wsClient.Listen()
 
-	log.Println("Listening for Mattermost events...")
+	// NEW: Check if WebSocket creation succeeds
+	wsClient, err := model.NewWebSocketClient4(wsURL, cfg.MattermostBotToken)
+	if err != nil {
+		log.Fatalf("❌ Failed to create WebSocket client: %v", err)
+	}
+
+	// NEW: Explicitly connect and catch network errors
+	if appErr := wsClient.Connect(); appErr != nil {
+		log.Fatalf("❌ Failed to connect to Mattermost WebSocket: %v", appErr)
+	}
+
+	wsClient.Listen()
+	log.Println("✅ Connected and listening for Mattermost events...")
 
 	for event := range wsClient.EventChannel {
+		// NEW: Prevent nil pointer panics if the connection drops
+		if event == nil {
+			log.Println("⚠️ Received nil event, WebSocket channel might be closed.")
+			continue
+		}
+
 		if event.EventType() != model.WebsocketEventPosted {
 			continue
 		}
+
 		var post model.Post
 		json.Unmarshal([]byte(event.GetData()["post"].(string)), &post)
 
