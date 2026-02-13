@@ -1,4 +1,6 @@
-# OpsBridge: Gitea-Mattermost Integration
+<h1 align="center" style="border-bottom: none">
+    <a target="_blank"><img alt="opsbridge" src="docs/logo.png"></a><br>OpsBridge
+</h1>
 
 **OpsBridge** is a high-performance Go-based bridge designed to eliminate context-switching during incident response. It monitors Mattermost alert threads and automatically links them to the corresponding tickets in Gitea using case-insensitive label-matching logic.
 
