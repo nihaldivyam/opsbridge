@@ -13,7 +13,7 @@ Instead of switching context between chat and your issue tracker during an incid
 
 ## 🏗️ Architecture Workflow
 
-1. A monitoring tool (like `bot_opsmondo` or Alertmanager) posts an alert to Mattermost and creates a ticket in Gitea.
+1. A monitoring tool (like Alertmanager) posts an alert to Mattermost and creates a ticket in Gitea.
 2. An engineer replies to the alert thread in Mattermost.
 3. OpsBridge catches the `posted` event via WebSocket.
 4. It fetches the parent message of the thread, extracting the `alertname` and `certname`.
