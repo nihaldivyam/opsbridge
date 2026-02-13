@@ -6,6 +6,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/mattermost/mattermost-server/v6/model"
 	"github.com/nihaldivyam/opsbridge/internal/config"
@@ -115,40 +116,57 @@ func processAction(gc *gitea.Client, mm *model.Client4, post *model.Post, num in
 	raw := strings.TrimSpace(post.Message)
 	low := strings.ToLower(raw)
 
-	// Utility command: /ticket (Status report is handled in main loop)
 	if low == "/ticket" {
 		return
 	}
 
-	// Feature: /assignme
 	if low == "/assignme" {
 		user, _, _ := mm.GetUser(post.UserId, "")
 		if err := gc.AssignIssue(num, user.Username); err == nil {
 			reply(mm, post, "👤 Ticket successfully assigned to **"+user.Username+"**")
-			log.Printf("Successfully assigned issue #%d to %s", num, user.Username)
 		}
 		return
 	}
 
-	// Feature: /assign @user or typo /addign @user
 	if strings.HasPrefix(low, "/assign @") || strings.HasPrefix(low, "/addign @") {
 		parts := strings.Split(raw, " ")
 		if len(parts) >= 2 {
 			target := strings.TrimPrefix(parts[1], "@")
 			if err := gc.AssignIssue(num, target); err == nil {
 				reply(mm, post, "👤 Ticket successfully assigned to **@"+target+"**")
-				log.Printf("Successfully assigned issue #%d to @%s", num, target)
 			}
 		}
 		return
 	}
 
-	// Feature: /ticket [comment]
+	// NEW: Feature: /ticket [comment] with user attribution
+	// Feature: /ticket [comment] with user attribution
 	if strings.HasPrefix(low, "/ticket ") {
-		comment := strings.TrimSpace(raw[8:])
-		if comment != "" {
-			if err := gc.AddComment(num, comment); err == nil {
-				log.Printf("Successfully added comment to issue #%d", num)
+		commentText := strings.TrimSpace(raw[8:])
+		if commentText != "" {
+			// 1. Fetch the Mattermost user who typed the command
+			user, _, err := mm.GetUser(post.UserId, "")
+			username := "Unknown User"
+			if err == nil {
+				username = user.Username
+			}
+
+			// 2. Format the timestamp
+			postTime := time.UnixMilli(post.CreateAt).Format("2006-01-02 15:04:05")
+
+			// 3. Construct the attributed comment string for Gitea
+			attributedComment := fmt.Sprintf("🗣 **@%s** commented via Mattermost at `%s`:\n\n> %s",
+				username, postTime, commentText)
+
+			// 4. Send the formatted comment to Gitea
+			if err := gc.AddComment(num, attributedComment); err == nil {
+				log.Printf("Successfully added attributed comment to issue #%d on behalf of %s", num, username)
+
+				// UPDATE: Reply with the actual comment text in Mattermost
+				successMsg := fmt.Sprintf("✅ *Synced to Gitea:*\n> %s", commentText)
+				reply(mm, post, successMsg)
+			} else {
+				log.Printf("Failed to add comment to #%d: %v", num, err)
 			}
 		}
 	}
