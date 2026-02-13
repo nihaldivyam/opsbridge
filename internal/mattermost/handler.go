@@ -97,10 +97,22 @@ func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 					continue
 				}
 
-				// Post the status summary to start the thread
+				// Build the status message
 				statusMsg := buildStatusMessage(cfg, issue)
-				reply(mmClient, &post, statusMsg)
-				log.Printf("Auto-replied with ticket status for issue #%d", issue.Number)
+
+				// Determine who to ping based on the channel name
+				pingTags := "@operation" // Default to the whole operations team
+				channel, _, err := mmClient.GetChannel(post.ChannelId, "")
+				if err == nil && channel.Name == "kilroy-alerts-qa" {
+					pingTags = "@hritik @sidharth @smahar @franco-david @yulian @nitish0 @olayinka @kanha @onkar @gaurav"
+				}
+
+				// UX Improvement: Format it as a human-readable sentence
+				finalMsg := fmt.Sprintf("🚨 (%s) - A new alert has been detected, please look into it!\n\n%s", pingTags, statusMsg)
+
+				// Post the status summary to start the thread
+				reply(mmClient, &post, finalMsg)
+				log.Printf("Auto-replied with ticket status for issue #%d and pinged %s", issue.Number, pingTags)
 			}
 			continue
 		}
