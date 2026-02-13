@@ -77,4 +77,4 @@ OpsBridge will post this exact string as a comment on the matched Gitea issue.
 Registering Time:
 
 `/ticket 45m cleared the cache and restarted the ArgoCD pods`
-OpsBridge will register 45 minutes of time tracking on the Gitea issue and post the accompanying text as a comment explaining the time.   ```
+OpsBridge will register 45 minutes of time tracking on the Gitea issue and post the accompanying text as a comment explaining the time.

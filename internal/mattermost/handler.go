@@ -12,8 +12,9 @@ import (
 	"github.com/nihaldivyam/opsbridge/internal/gitea"
 )
 
-func extractLabel(text, labelKey string) string {
-	re := regexp.MustCompile(`(?i)` + labelKey + `:\**\s*\x60?([a-zA-Z0-9_.-]+)\x60?`)
+// extractLabel parses Alertmanager labels from raw markdown text
+func extractLabel(text, key string) string {
+	re := regexp.MustCompile(`(?i)` + key + `:\**\s*\x60?([a-zA-Z0-9_.-]+)\x60?`)
 	matches := re.FindStringSubmatch(text)
 	if len(matches) > 1 {
 		return matches[1]
@@ -24,102 +25,139 @@ func extractLabel(text, labelKey string) string {
 func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 	mmClient := model.NewAPIv4Client(cfg.MattermostURL)
 	mmClient.SetToken(cfg.MattermostBotToken)
-
-	botUser, _, err := mmClient.GetMe("")
-	if err != nil {
-		log.Fatalf("Failed to fetch bot user from Mattermost: %v", err)
-	}
-	log.Printf("Successfully authenticated to Mattermost as Bot User: %s", botUser.Username)
+	bot, _, _ := mmClient.GetMe("")
 
 	wsURL := strings.Replace(cfg.MattermostURL, "http", "ws", 1)
-	wsClient, err := model.NewWebSocketClient4(wsURL, cfg.MattermostBotToken)
-	if err != nil {
-		log.Fatalf("Failed to connect to Mattermost WebSocket: %v", err)
-	}
-
+	wsClient, _ := model.NewWebSocketClient4(wsURL, cfg.MattermostBotToken)
 	wsClient.Listen()
+
 	log.Println("Listening for Mattermost events...")
 
 	for event := range wsClient.EventChannel {
 		if event.EventType() != model.WebsocketEventPosted {
 			continue
 		}
-
-		postData, ok := event.GetData()["post"].(string)
-		if !ok {
-			continue
-		}
-
 		var post model.Post
-		if err := json.Unmarshal([]byte(postData), &post); err != nil {
+		json.Unmarshal([]byte(event.GetData()["post"].(string)), &post)
+
+		// Input Validation: Only trigger on explicit commands
+		msg := strings.TrimSpace(strings.ToLower(post.Message))
+		if !strings.HasPrefix(msg, "/ticket") && !strings.HasPrefix(msg, "/assign") && !strings.HasPrefix(msg, "/addign") {
 			continue
 		}
 
-		senderName, _ := event.GetData()["sender_name"].(string)
-
-		if post.UserId == botUser.Id || senderName == "bot_opsmondo" {
+		// Avoid self-replies and ensure we are in a thread
+		if post.UserId == bot.Id || post.RootId == "" {
 			continue
 		}
 
-		if post.RootId == "" {
+		parent, _, _ := mmClient.GetPost(post.RootId, "")
+		a, c := extractLabel(parent.Message, "alertname"), extractLabel(parent.Message, "certname")
+		if a == "" || c == "" {
 			continue
 		}
 
-		parentPost, _, err := mmClient.GetPost(post.RootId, "")
-		if err != nil {
-			log.Printf("Failed to get parent post: %v", err)
-			continue
-		}
+		log.Printf("Event caught. Extracted Labels -> Alert: %s, Cert: %s", a, c)
 
-		alertname := extractLabel(parentPost.Message, "alertname")
-		certname := extractLabel(parentPost.Message, "certname")
-
-		if alertname == "" || certname == "" {
-			continue
-		}
-
-		log.Printf("Extracted labels - Alert: %s, Cert: %s", alertname, certname)
-
-		issueNumber, err := gc.FindIssueByLabels(alertname, certname)
+		// Fetch the full issue object from Gitea including Labels and Assignees
+		issue, err := gc.FindIssueByLabels(a, c)
 		if err != nil {
 			log.Printf("Fuzzy search failed: %v", err)
 			continue
 		}
 
-		issueURL := fmt.Sprintf("%s/%s/%s/issues/%d", cfg.GiteaURL, cfg.GiteaOwner, cfg.GiteaRepo, issueNumber)
-		log.Printf("Found match! Processing action on Gitea issue: %s", issueURL)
+		// Filter Gitea Labels to remove "Incident" and "Time To Handle"
+		var labelNames []string
+		for _, lbl := range issue.Labels {
+			name := lbl.Name
+			// Check if the label should be excluded
+			if strings.EqualFold(name, "Incident") || strings.Contains(strings.ToLower(name), "time to handle") {
+				continue
+			}
+			labelNames = append(labelNames, "`"+name+"`")
+		}
 
-		processAction(gc, issueNumber, post.Message)
+		currentLabels := "None"
+		if len(labelNames) > 0 {
+			currentLabels = strings.Join(labelNames, ", ")
+		}
+
+		// Parse Assignees
+		assigneeNames := "Unassigned"
+		if len(issue.Assignees) > 0 {
+			var names []string
+			for _, user := range issue.Assignees {
+				names = append(names, user.Username)
+			}
+			assigneeNames = strings.Join(names, ", ")
+		}
+
+		// Construct the detailed Mattermost status report
+		issueURL := fmt.Sprintf("%s/%s/%s/issues/%d", cfg.GiteaURL, cfg.GiteaOwner, cfg.GiteaRepo, issue.Number)
+		statusEmoji := "🟢"
+		if issue.State == "closed" {
+			statusEmoji = "🔴"
+		}
+
+		statusMsg := fmt.Sprintf(":round_pushpin: **Matched Gitea Ticket:** %s\n**Status:** %s %s\n**Alert Labels:** %s\n**Assigned to:** %s",
+			issueURL, statusEmoji, strings.Title(issue.State), currentLabels, assigneeNames)
+
+		log.Printf("Found match! #%d | Status: %s | Labels: %s | Assignees: %s", issue.Number, issue.State, currentLabels, assigneeNames)
+
+		// Post the detailed ticket summary to the thread
+		reply(mmClient, &post, statusMsg)
+
+		processAction(gc, mmClient, &post, issue.Number, issueURL)
 	}
 }
 
-func processAction(gc *gitea.Client, issueNumber int, text string) {
-	// Trim spaces from the raw message
-	replyText := strings.TrimSpace(text)
+func processAction(gc *gitea.Client, mm *model.Client4, post *model.Post, num int, url string) {
+	raw := strings.TrimSpace(post.Message)
+	low := strings.ToLower(raw)
 
-	// Convert to lowercase just for the prefix check
-	lowerText := strings.ToLower(replyText)
-
-	// If the user typed exactly "/ticket" (or with trailing spaces)
-	if lowerText == "/ticket" {
-		log.Printf("Utility command detected: Ticket link displayed above. No comment added to Gitea.")
-		return // Exit early without calling gc.AddComment
-	}
-
-	// If they typed "/ticket something..." we treat "something..." as the comment
-	if strings.HasPrefix(lowerText, "/ticket ") {
-		replyText = strings.TrimSpace(replyText[7:]) // Strip "/ticket " from the start
-	}
-
-	// If the resulting text is empty after stripping /ticket, do nothing
-	if replyText == "" {
+	// Utility command: /ticket (Status report is handled in main loop)
+	if low == "/ticket" {
 		return
 	}
 
-	// Post the remaining text as a comment
-	if err := gc.AddComment(issueNumber, replyText); err != nil {
-		log.Printf("Failed to add comment: %v", err)
-	} else {
-		log.Printf("Successfully added comment to issue #%d", issueNumber)
+	// Feature: /assignme
+	if low == "/assignme" {
+		user, _, _ := mm.GetUser(post.UserId, "")
+		if err := gc.AssignIssue(num, user.Username); err == nil {
+			reply(mm, post, "👤 Ticket successfully assigned to **"+user.Username+"**")
+			log.Printf("Successfully assigned issue #%d to %s", num, user.Username)
+		}
+		return
 	}
+
+	// Feature: /assign @user or typo /addign @user
+	if strings.HasPrefix(low, "/assign @") || strings.HasPrefix(low, "/addign @") {
+		parts := strings.Split(raw, " ")
+		if len(parts) >= 2 {
+			target := strings.TrimPrefix(parts[1], "@")
+			if err := gc.AssignIssue(num, target); err == nil {
+				reply(mm, post, "👤 Ticket successfully assigned to **@"+target+"**")
+				log.Printf("Successfully assigned issue #%d to @%s", num, target)
+			}
+		}
+		return
+	}
+
+	// Feature: /ticket [comment]
+	if strings.HasPrefix(low, "/ticket ") {
+		comment := strings.TrimSpace(raw[8:])
+		if comment != "" {
+			if err := gc.AddComment(num, comment); err == nil {
+				log.Printf("Successfully added comment to issue #%d", num)
+			}
+		}
+	}
+}
+
+func reply(mm *model.Client4, post *model.Post, msg string) {
+	mm.CreatePost(&model.Post{
+		ChannelId: post.ChannelId,
+		RootId:    post.RootId,
+		Message:   msg,
+	})
 }

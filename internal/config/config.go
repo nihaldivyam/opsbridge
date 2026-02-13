@@ -10,8 +10,8 @@ type Config struct {
 	GiteaToken         string
 	GiteaOwner         string
 	GiteaRepo          string
-	GiteaBasicUser     string // NEW
-	GiteaBasicPass     string // NEW
+	GiteaBasicUser     string
+	GiteaBasicPass     string
 	MattermostURL      string
 	MattermostBotToken string
 }
@@ -22,14 +22,14 @@ func LoadConfig() *Config {
 		GiteaToken:         os.Getenv("GITEA_TOKEN"),
 		GiteaOwner:         os.Getenv("GITEA_OWNER"),
 		GiteaRepo:          os.Getenv("GITEA_REPO"),
-		GiteaBasicUser:     os.Getenv("GITEA_BASIC_USER"), // NEW
-		GiteaBasicPass:     os.Getenv("GITEA_BASIC_PASS"), // NEW
+		GiteaBasicUser:     os.Getenv("GITEA_BASIC_USER"),
+		GiteaBasicPass:     os.Getenv("GITEA_BASIC_PASS"),
 		MattermostURL:      os.Getenv("MATTERMOST_URL"),
 		MattermostBotToken: os.Getenv("MATTERMOST_BOT_TOKEN"),
 	}
 
 	if cfg.GiteaURL == "" || cfg.GiteaToken == "" || cfg.MattermostURL == "" || cfg.MattermostBotToken == "" {
-		log.Fatal("Missing required environment variables. Please check GITEA_URL, GITEA_TOKEN, MATTERMOST_URL, and MATTERMOST_BOT_TOKEN.")
+		log.Fatal("Missing required environment variables.")
 	}
 
 	return cfg
