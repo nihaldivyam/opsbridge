@@ -26,7 +26,7 @@ config:
 secrets:
   # If you want to use a pre-existing Kubernetes Secret, provide its name here.
   # The existing secret MUST contain the keys: GITEA_TOKEN and MATTERMOST_BOT_TOKEN
-  existingSecret: ""
+  existingSecret: "opsbridge-secrets"
 
   # If existingSecret is left blank, these values will be used to create a new secret.
   giteaToken: ""
