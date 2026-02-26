@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opsbridge.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "opsbridge.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "opsbridge.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opsbridge.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            # Inject standard config
+            - name: GITEA_URL
+              value: {{ .Values.config.giteaUrl | quote }}
+            - name: GITEA_OWNER
+              value: {{ .Values.config.giteaOwner | quote }}
+            - name: GITEA_REPO
+              value: {{ .Values.config.giteaRepo | quote }}
+            - name: MATTERMOST_URL
+              value: {{ .Values.config.mattermostUrl | quote }}
+            - name: QA_CHANNEL_NAME
+              value: {{ .Values.config.qaChannelName | quote }}
+            - name: QA_CHANNEL_TAGS
+              value: {{ .Values.config.qaChannelTags | quote }}
+            - name: DEFAULT_ALERT_TAGS
+              value: {{ .Values.config.defaultAlertTags | quote }}
+          envFrom:
+            # Inject sensitive tokens safely
+            - secretRef:
+                name: {{ include "opsbridge.fullname" . }}-secrets
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
