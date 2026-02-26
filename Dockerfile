@@ -20,11 +20,13 @@ RUN go mod download
 # Copy the rest of the application
 COPY . .
 
+ARG TARGETARCH
+
 # Build a strictly static binary
 # -trimpath removes your local machine's file paths from the compiled binary
 # -ldflags="-w -s" strips debugging information
 # -extldflags "-static" ensures absolutely no dynamic linking
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-w -s -extldflags '-static'" -o opsbridge ./cmd/bot
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags="-w -s -extldflags '-static'" -o opsbridge ./cmd/bot
 
 # ==========================================
 # Stage 2: Final Production Image (Scratch)

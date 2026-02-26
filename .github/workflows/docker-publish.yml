@@ -3,13 +3,11 @@ name: Build and Push OpsBridge
 on:
   push:
     branches: [ "helm-deployment" ]
-    # Also trigger on version tags (e.g., v1.0.1)
     tags: [ 'v*.*.*' ]
   pull_request:
     branches: [ "main" ]
 
 env:
-  # Use ghcr.io for the GitHub Container Registry
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -24,6 +22,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 1. NEW: Add QEMU emulator to support Apple Silicon (ARM64) builds
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -32,14 +34,6 @@ jobs:
         with:
           go-version: '1.24'
 
-      # Set up Go (needed if you want to run tests before building)
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-
-      # Log into the GitHub Container Registry
-      # This uses the automatic GITHUB_TOKEN provided by GitHub Actions
       - name: Log into registry ${{ env.REGISTRY }}
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -48,7 +42,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Extract metadata (tags, labels) for Docker
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -60,11 +53,12 @@ jobs:
             type=ref,event=branch
             latest
 
-      # Build and push the Docker image
       - name: Build and push Docker image
         uses: docker/build-push-action@v6.19.2
         with:
           context: .
+          # 2. NEW: Instruct Buildx to compile for both architectures
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
