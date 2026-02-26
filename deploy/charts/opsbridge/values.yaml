@@ -1,9 +1,9 @@
 replicaCount: 1
 
 image:
-  repository: youracr.azurecr.io/opsbridge
-  pullPolicy: Always
-  tag: "v1.0.0"
+  repository: ghcr.io/nihaldivyam/opsbridge
+  pullPolicy: IfNotPresent
+  tag: "latest"
 
 # Target namespace for the deployment
 namespace: monitoring
@@ -18,12 +18,17 @@ config:
   mattermostUrl: "https://chat.obmondo.com"
 
   # Dynamic Routing
-  qaChannelName: "kilroy-alerts-qa"
-  qaChannelTags: "@hritik @sidharth @smahar @franco-david @yulian @nitish0 @olayinka @kanha @onkar @gaurav"
+  qaChannelName: "alerts-qa"
+  qaChannelTags: "@onkar @gaurav"
   defaultAlertTags: "@operation"
 
-# Sensitive tokens (These should be injected via CI/CD or an external secrets operator in production)
+# Sensitive tokens
 secrets:
+  # If you want to use a pre-existing Kubernetes Secret, provide its name here.
+  # The existing secret MUST contain the keys: GITEA_TOKEN and MATTERMOST_BOT_TOKEN
+  existingSecret: ""
+
+  # If existingSecret is left blank, these values will be used to create a new secret.
   giteaToken: ""
   mattermostBotToken: ""
   giteaBasicUser: ""
