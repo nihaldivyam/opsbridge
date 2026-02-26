@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	cfg := config.LoadConfig() // Ensure your config struct now has MattermostURL and MattermostBotToken
+	cfg := config.Load() // Ensure your config struct now has MattermostURL and MattermostBotToken
 	giteaClient := gitea.NewClient(cfg)
 
 	log.Println("Starting opsbridge bot via Mattermost WebSocket...")

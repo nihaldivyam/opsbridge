@@ -1,36 +1,49 @@
 package config
 
-import (
-	"log"
-	"os"
-)
+import "os"
 
 type Config struct {
 	GiteaURL           string
 	GiteaToken         string
 	GiteaOwner         string
 	GiteaRepo          string
-	GiteaBasicUser     string
-	GiteaBasicPass     string
 	MattermostURL      string
 	MattermostBotToken string
+
+	// Optional Basic Auth for Gitea Proxy
+	GiteaBasicUser string
+	GiteaBasicPass string
+
+	// Dynamic routing configuration
+	QAChannelName    string
+	QAChannelTags    string
+	DefaultAlertTags string
 }
 
-func LoadConfig() *Config {
-	cfg := &Config{
+func Load() *Config {
+	return &Config{
 		GiteaURL:           os.Getenv("GITEA_URL"),
 		GiteaToken:         os.Getenv("GITEA_TOKEN"),
 		GiteaOwner:         os.Getenv("GITEA_OWNER"),
 		GiteaRepo:          os.Getenv("GITEA_REPO"),
-		GiteaBasicUser:     os.Getenv("GITEA_BASIC_USER"),
-		GiteaBasicPass:     os.Getenv("GITEA_BASIC_PASS"),
 		MattermostURL:      os.Getenv("MATTERMOST_URL"),
 		MattermostBotToken: os.Getenv("MATTERMOST_BOT_TOKEN"),
-	}
 
-	if cfg.GiteaURL == "" || cfg.GiteaToken == "" || cfg.MattermostURL == "" || cfg.MattermostBotToken == "" {
-		log.Fatal("Missing required environment variables.")
-	}
+		// Proxy Auth
+		GiteaBasicUser: os.Getenv("GITEA_BASIC_USER"),
+		GiteaBasicPass: os.Getenv("GITEA_BASIC_PASS"),
 
-	return cfg
+		// Load from env, but provide safe fallbacks
+		QAChannelName:    getEnv("QA_CHANNEL_NAME", "kilroy-alerts-qa"),
+		QAChannelTags:    getEnv("QA_CHANNEL_TAGS", "@hritik @sidharth @smahar @franco-david @yulian @nitish0 @olayinka @kanha @onkar @gaurav"),
+		DefaultAlertTags: getEnv("DEFAULT_ALERT_TAGS", "@operation"),
+	}
+}
+
+// Helper function to provide default values if the env var is missing
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }

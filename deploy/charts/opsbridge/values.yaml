@@ -1,0 +1,44 @@
+replicaCount: 1
+
+image:
+  repository: youracr.azurecr.io/opsbridge
+  pullPolicy: Always
+  tag: "v1.0.0"
+
+# Target namespace for the deployment
+namespace: monitoring
+
+config:
+  # Gitea Configuration
+  giteaUrl: "https://gitea.yourdomain.com"
+  giteaOwner: "operations"
+  giteaRepo: "infrastructure"
+
+  # Mattermost Configuration
+  mattermostUrl: "https://chat.obmondo.com"
+
+  # Dynamic Routing
+  qaChannelName: "kilroy-alerts-qa"
+  qaChannelTags: "@hritik @sidharth @smahar @franco-david @yulian @nitish0 @olayinka @kanha @onkar @gaurav"
+  defaultAlertTags: "@operation"
+
+# Sensitive tokens (These should be injected via CI/CD or an external secrets operator in production)
+secrets:
+  giteaToken: ""
+  mattermostBotToken: ""
+  giteaBasicUser: ""
+  giteaBasicPass: ""
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 50m
+    memory: 64Mi
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001

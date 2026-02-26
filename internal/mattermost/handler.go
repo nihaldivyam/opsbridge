@@ -61,7 +61,7 @@ func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 	mmClient := model.NewAPIv4Client(cfg.MattermostURL)
 	mmClient.SetToken(cfg.MattermostBotToken)
 
-	// NEW: Actually check if the REST API connection succeeds
+	// Explicitly check if the REST API connection succeeds
 	bot, _, err := mmClient.GetMe("")
 	if err != nil {
 		log.Fatalf("❌ Failed to authenticate with Mattermost REST API: %v", err)
@@ -69,13 +69,13 @@ func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 
 	wsURL := strings.Replace(cfg.MattermostURL, "http", "ws", 1)
 
-	// NEW: Check if WebSocket creation succeeds
+	// Check if WebSocket creation succeeds
 	wsClient, err := model.NewWebSocketClient4(wsURL, cfg.MattermostBotToken)
 	if err != nil {
 		log.Fatalf("❌ Failed to create WebSocket client: %v", err)
 	}
 
-	// NEW: Explicitly connect and catch network errors
+	// Explicitly connect and catch network errors
 	if appErr := wsClient.Connect(); appErr != nil {
 		log.Fatalf("❌ Failed to connect to Mattermost WebSocket: %v", appErr)
 	}
@@ -84,7 +84,7 @@ func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 	log.Println("✅ Connected and listening for Mattermost events...")
 
 	for event := range wsClient.EventChannel {
-		// NEW: Prevent nil pointer panics if the connection drops
+		// Prevent nil pointer panics if the connection drops
 		if event == nil {
 			log.Println("⚠️ Received nil event, WebSocket channel might be closed.")
 			continue
@@ -93,7 +93,6 @@ func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 		if event.EventType() != model.WebsocketEventPosted {
 			continue
 		}
-
 		var post model.Post
 		json.Unmarshal([]byte(event.GetData()["post"].(string)), &post)
 
@@ -123,14 +122,14 @@ func StartWebSocketListener(cfg *config.Config, gc *gitea.Client) {
 				statusMsg := buildStatusMessage(cfg, issue)
 
 				// Determine who to ping based on the channel name
-				pingTags := "@operation" // Default to the whole operations team
+				pingTags := cfg.DefaultAlertTags // Default to the whole operations team
 				channel, _, err := mmClient.GetChannel(post.ChannelId, "")
-				if err == nil && channel.Name == "kilroy-alerts-qa" {
-					pingTags = "@hritik @sidharth @smahar @franco-david @yulian @nitish0 @olayinka @kanha @onkar @gaurav"
+				if err == nil && channel.Name == cfg.QAChannelName {
+					pingTags = cfg.QAChannelTags
 				}
 
-				// UX Improvement: Format it as a human-readable sentence
-				finalMsg := fmt.Sprintf("🚨 (%s) - A new alert has been detected, please look into it!\n\n%s", pingTags, statusMsg)
+				// Format it as a human-readable sentence
+				finalMsg := fmt.Sprintf("🚨 **Operations Team** (%s) - A new alert has been detected, please look into it!\n\n%s", pingTags, statusMsg)
 
 				// Post the status summary to start the thread
 				reply(mmClient, &post, finalMsg)
@@ -189,6 +188,7 @@ func processAction(gc *gitea.Client, mm *model.Client4, post *model.Post, num in
 		return
 	}
 
+	// Feature: /ticket [comment] with user attribution
 	if strings.HasPrefix(low, "/ticket ") {
 		commentText := strings.TrimSpace(raw[8:])
 		if commentText != "" {
