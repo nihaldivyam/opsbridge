@@ -2,7 +2,7 @@ name: Build and Push OpsBridge
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "helm-deployment" ]
     # Also trigger on version tags (e.g., v1.0.1)
     tags: [ 'v*.*.*' ]
   pull_request:
